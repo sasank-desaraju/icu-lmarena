@@ -6,7 +6,7 @@ This file provides a modular, self-contained Streamlit app that:
 - Accepts one prompt and queries four models (ChatGPT-5, Claude 4.5 Sonnet, Gemini 2.0, Grok 4).
 - Randomizes the displayed order each run and blinds model names.
 - Shows four 5-point Likert sliders under each response in this order:
-  Accuracy, Instruction-following, Style, Helpfulness.
+- Accuracy, Instruction-following, Style, Helpfulness.
 - Records every assignment (one row per option) to `evaluations.csv` in repo root.
 - Provides a Reset button to clear current assignment so users can run multiple rounds.
 
@@ -26,6 +26,12 @@ from datetime import datetime
 from typing import Dict, List, Tuple
 
 import streamlit as st
+from openai import OpenAI
+import anthropic
+from google import genai
+from google.genai import types
+# import google.generativeai as genai
+# from google.genai import types
 
 # Constants
 CSV_PATH = os.path.join(os.path.dirname(__file__), "evaluations.csv")
@@ -38,7 +44,9 @@ MODEL_ORDER = [
 
 
 def now_iso() -> str:
-    return datetime.utcnow().isoformat(timespec="seconds") + "Z"
+    # return datetime.utcnow().isoformat(timespec="seconds") + "Z"
+    return datetime.now().isoformat(timespec="seconds") + "Z"
+    # return datetime.UTC
 
 
 def ensure_user(name: str) -> str:
@@ -47,87 +55,84 @@ def ensure_user(name: str) -> str:
 
 
 # ---- LLM runners (best-effort; tolerant to missing SDKs/keys) ----
-def _chatgpt5_runner(prompt: str) -> Tuple[str, int]:
-    key = st.secrets.get("models", {}).get("chatgpt5_api_key")
+def _chatgpt5_runner(system_prompt: str, user_prompt: str) -> Tuple[str, int]:
+    key = st.secrets.get("models", {}).get("OPENAI_API_KEY")
     t0 = time.time()
-    if not key:
-        return ("[ChatGPT-5 skipped — missing API key]", -1)
-    try:
-        # Try to call OpenAI package if present
-        import openai
+    client = OpenAI(api_key=key)
+    # response = client.chat.completions.create(
+    #     model="gpt-5",  # Use available model; adjust as needed
+    #     messages=[
+    #         {"role": "system", "content": system_prompt},
+    #         {"role": "user", "content": user_prompt}
+    #     ],
+    #     # temperature=0.2,
+    #     max_tokens=1000,
+    # )
+    # response = response.choices[0].message.content
+    response = client.responses.create(
+        model="gpt-5",  # Use available model; adjust as needed
+        reasoning={"effort": "low"},
+        input=[
+            {"role": "developer", "content": system_prompt},
+            {"role": "user", "content": user_prompt},
+        ]
+    )
+    response = response.output_text
 
-        openai.api_key = key
-        resp = openai.ChatCompletion.create(
-            model="gpt-5-chat",
-            messages=[{"role": "system", "content": "You are an ICU assistant. Be concise and accurate."}, {"role": "user", "content": prompt}],
-            temperature=0.2,
-            max_tokens=700,
-        )
-        text = resp.choices[0].message.get("content") if resp.choices else resp.choices[0].text
-    except Exception as exc:  # fallback message on error
-        text = f"[ChatGPT-5 error: {exc}]"
-    return (str(text), int((time.time() - t0) * 1000))
+    return (str(response), int((time.time() - t0) * 1000))
 
 
-def _claude_runner(prompt: str) -> Tuple[str, int]:
-    key = st.secrets.get("models", {}).get("claude_api_key")
+def _claude_runner(system_prompt: str, user_prompt: str) -> Tuple[str, int]:
+    key = st.secrets.get("models", {}).get("ANTHROPIC_API_KEY")
     t0 = time.time()
-    if not key:
-        return ("[Claude skipped — missing API key]", -1)
-    try:
-        import anthropic
+    client = anthropic.Client(api_key=key)
+    response = client.messages.create(
+        model="claude-sonnet-4-5",
+        max_tokens=1000,
+        system = system_prompt,
+        messages=[
+            {
+                "role": "user", "content": user_prompt,
+            }
+        ]
+    )
+    response = response.content[0].text
 
-        client = anthropic.Client(api_key=key)
-        resp = client.completions.create(
-            model="claude-4.5-sonnet",
-            prompt=f"{prompt}",
-            max_tokens_to_sample=750,
-            temperature=0.2,
-        )
-        text = getattr(resp, "completion", "") or str(resp)
-    except Exception as exc:
-        text = f"[Claude error: {exc}]"
-    return (text, int((time.time() - t0) * 1000))
+    return (response, int((time.time() - t0) * 1000))
 
 
-def _gemini_runner(prompt: str) -> Tuple[str, int]:
-    key = st.secrets.get("models", {}).get("gemini_api_key")
+def _gemini_runner(system_prompt: str, user_prompt: str) -> Tuple[str, int]:
+    key = st.secrets.get("models", {}).get("GEMINI_API_KEY")
     t0 = time.time()
-    if not key:
-        return ("[Gemini skipped — missing API key]", -1)
-    try:
-        import google.generativeai as genai
+    client = genai.Client(api_key=key)
+    response = client.models.generate_content(
+        model="gemini-2.5-flash",
+        config=types.GenerateContentConfig(
+            system_instruction=system_prompt),
+        contents=user_prompt
+    )
+    response = response.text
 
-        genai.configure(api_key=key)
-        resp = genai.generate(model="gemini-2.0-pro", input=["You are an ICU assistant. Be concise and accurate.", prompt], max_output_tokens=700, temperature=0.2)
-        text = getattr(resp, "text", "") or str(resp)
-    except Exception as exc:
-        text = f"[Gemini error: {exc}]"
-    return (text, int((time.time() - t0) * 1000))
+    return (response, int((time.time() - t0) * 1000))
 
 
-def _grok_runner(prompt: str) -> Tuple[str, int]:
-    key = st.secrets.get("models", {}).get("grok_api_key")
+def _grok_runner(system_prompt: str, user_prompt: str) -> Tuple[str, int]:
+    key = st.secrets.get("models", {}).get("XAI_API_KEY")
+    grok_url = 'https://api.x.ai/v1'
     t0 = time.time()
-    if not key:
-        return ("[Grok skipped — missing API key]", -1)
-    try:
-        import openai
+    client = OpenAI(api_key=key, base_url=grok_url)
+    response = client.chat.completions.create(
+        model="grok-4",  # Adjust model name
+        messages=[
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt}
+        ],
+        # temperature=0.2,
+        max_tokens=1000,
+    )
+    response = response.choices[0].message.content
 
-        # Grok-compatible base URL may be provided; user can set in secrets as grok_base_url
-        base = st.secrets.get("models", {}).get("grok_base_url")
-        if base:
-            client = openai.OpenAI(api_key=key, base_url=base)
-            resp = client.chat.completions.create(model="grok-4", messages=[{"role": "system", "content": "You are an ICU assistant. Be concise and accurate."}, {"role": "user", "content": prompt}], temperature=0.2, max_tokens=700)
-            text = resp.choices[0].message.get("content")
-        else:
-            # Try standard openai.ChatCompletion
-            openai.api_key = key
-            resp = openai.ChatCompletion.create(model="grok-4", messages=[{"role": "system", "content": "You are an ICU assistant. Be concise and accurate."}, {"role": "user", "content": prompt}], temperature=0.2, max_tokens=700)
-            text = resp.choices[0].message.get("content")
-    except Exception as exc:
-        text = f"[Grok error: {exc}]"
-    return (str(text), int((time.time() - t0) * 1000))
+    return (str(response), int((time.time() - t0) * 1000))
 
 
 RUNNERS = {
@@ -151,7 +156,8 @@ def _csv_fieldnames() -> List[str]:
         "assignment_id",
         "timestamp",
         "user_name",
-        "prompt",
+        "system_prompt",
+        "user_prompt",
         "seed",
         "option_label",
         "model_code",
@@ -184,10 +190,11 @@ if SHARED_PW:
         if st.button("Enter"):
             if pw == SHARED_PW:
                 st.session_state["pw_ok"] = True
-                st.experimental_rerun()
             else:
                 st.error("Wrong password")
-        st.stop()
+        # Only stop if password has not been accepted
+        if not st.session_state.get("pw_ok"):
+            st.stop()
 
 with st.sidebar:
     st.header("Rater")
@@ -221,27 +228,33 @@ if "user_name" not in st.session_state:
     st.stop()
 
 st.markdown("### Enter a prompt")
-prompt = st.text_area("Prompt", height=140, placeholder="Summarize initial management of suspected elevated ICP in an adult with severe TBI.")
+user_prompt = st.text_area("Prompt", height=140, placeholder="Summarize initial management of suspected elevated ICP in an adult with severe TBI.")
 
 col1, col2 = st.columns([1, 3])
 with col1:
-    stakeholder = st.selectbox("Stakeholder", ["Physician", "Nurse", "Patient/Family", "Pharmacist", "Therapist", "Other"])  # preserved for future export
+    stakeholder = st.selectbox("Stakeholder", ["Provider", "Patient/Family"])  # preserved for future export
 with col2:
     category = st.selectbox("Category", ["Clinical Decision Support", "Protocol Clarification", "Patient Education", "Care Coordination", "Documentation", "Other"])  # placeholder
 
-if st.button("Generate blinded responses", disabled=not prompt.strip()):
+if st.button("Generate blinded responses", disabled=not user_prompt.strip()):
     # Prepare assignment
     seed = random.randint(1, 10**9)
     assignment_id = str(uuid.uuid4())
+    system_prompt = """
+    You are a helpful and accurate medical assistant in the ICU.
+    Patients and providers will speak to you to ask you questions.
+    Respond to providers using standard medical terminology and respond to patients and their families using the appropriate layperson language.
+    """
     st.session_state["assignment_id"] = assignment_id
-    st.session_state["prompt"] = prompt
+    st.session_state["system_prompt"] = system_prompt
+    st.session_state["user_prompt"] = user_prompt
     st.session_state["seed"] = seed
 
     # Run runners in canonical order, then shuffle options for display
     results = []
     for code, _ in MODEL_ORDER:
         display_name, runner = RUNNERS[code]
-        text, latency = runner(prompt)
+        text, latency = runner(system_prompt, user_prompt)
         results.append({"model_code": code, "model_display_name": display_name, "text": text, "latency": latency})
 
     # Shuffle assignments deterministically by seed and assign labels A-D
@@ -268,15 +281,17 @@ if "options" in st.session_state and st.session_state.get("options"):
     st.markdown("---")
     st.markdown("#### Rate each option (1 = low, 5 = high)")
 
+    rating_cols = st.columns(4)
     rating_data = {}
-    for opt in options:
-        st.markdown(f"**Option {opt['label']}** — (hidden model)")
-        # Order as requested: Accuracy, Instruction-following, Style, Helpfulness
-        acc = st.slider("Accuracy", 1, 5, 3, key=f"rating_accuracy_{opt['label']}")
-        instr = st.slider("Instruction-following", 1, 5, 3, key=f"rating_instruction_{opt['label']}")
-        style = st.slider("Style", 1, 5, 3, key=f"rating_style_{opt['label']}")
-        helpf = st.slider("Helpfulness", 1, 5, 3, key=f"rating_helpfulness_{opt['label']}")
-        rating_data[opt['label']] = {"accuracy": acc, "instruction_following": instr, "style": style, "helpfulness": helpf}
+    for i, opt in enumerate(options):
+        with rating_cols[i]:
+            st.markdown(f"**Option {opt['label']}**")
+            # Order as requested: Accuracy, Instruction-following, Style, Helpfulness
+            acc = st.slider("Accuracy", 1, 5, 3, key=f"rating_accuracy_{opt['label']}")
+            instr = st.slider("Instruction-following", 1, 5, 3, key=f"rating_instruction_{opt['label']}")
+            style = st.slider("Style", 1, 5, 3, key=f"rating_style_{opt['label']}")
+            helpf = st.slider("Helpfulness", 1, 5, 3, key=f"rating_helpfulness_{opt['label']}")
+            rating_data[opt['label']] = {"accuracy": acc, "instruction_following": instr, "style": style, "helpfulness": helpf}
 
     preference = st.radio("Overall preference", [f"Option {o['label']}" for o in options] + ["Tie / No preference"], index=len(options), horizontal=True, key="overall_pref")
     comment = st.text_area("Optional comment / justification", height=100, key="overall_comment")
@@ -295,7 +310,8 @@ if "options" in st.session_state and st.session_state.get("options"):
                     "assignment_id": st.session_state.get("assignment_id"),
                     "timestamp": now_iso(),
                     "user_name": st.session_state.get("user_name"),
-                    "prompt": st.session_state.get("prompt"),
+                    "system_prompt": st.session_state.get("system_prompt"),
+                    "user_prompt": st.session_state.get("user_prompt"),
                     "seed": st.session_state.get("seed"),
                     "option_label": lbl,
                     "model_code": opt['model_code'],
@@ -314,7 +330,7 @@ if "options" in st.session_state and st.session_state.get("options"):
             st.success("Saved ratings — thank you!")
             # Clear current options to allow another round
             for k in list(st.session_state.keys()):
-                if k.startswith("assignment_") or k.startswith("options") or k.startswith("prompt"):
+                if k.startswith("assignment_") or k.startswith("options") or k.startswith("user_prompt"):
                     st.session_state.pop(k, None)
 
 else:
