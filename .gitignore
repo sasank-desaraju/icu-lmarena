@@ -1,2 +1,6 @@
 .streamlit/secrets.toml
 evaluations.csv
+*.db
+*.lock
+*.pyc
+__pycache__/

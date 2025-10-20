@@ -1,3 +1,4 @@
+import sys
 import os
 from openai import OpenAI
 import anthropic
@@ -5,7 +6,28 @@ from google import genai
 from google.genai import types
 
 SYSTEM_PROMPT = """The user's favorite color is purple."""
-USER_PROMPT = """What is my favorite color?"""
+# USER_PROMPT = """What is my favorite color?"""
+USER_PROMPT = """Write a poem about my favorite color."""
+
+print("\nGemini:")
+key = os.environ.get("GEMINI_API_KEY")
+if key:
+    client = genai.Client(api_key=key)
+    response = client.models.generate_content(
+        model="gemini-2.5-flash",
+        config=types.GenerateContentConfig(
+            system_instruction=SYSTEM_PROMPT,
+            max_output_tokens=200
+            # maxOutputTokens=200
+        ),
+        contents=USER_PROMPT
+    )
+    print(response.text)
+else:
+    print("GEMINI_API_KEY not set")
+
+
+sys.exit(0)
 
 # ChatGPT-5 (using OpenAI)
 print("ChatGPT-5:")

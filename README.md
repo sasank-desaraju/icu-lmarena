@@ -36,10 +36,10 @@ Populate `.streamlit/secrets.toml` locally (do **not** commit actual keys) and c
 shared_password = "change-me"  # optional simple gate; leave empty to disable
 
 [models]
-chatgpt5_api_key = "sk-..."
-claude_api_key = "sk-ant-..."
-gemini_api_key = "AIza..."
-grok_api_key = "xai-..."
+OPENAI_API_KEY = "sk-..."
+ANTHROPIC_API_KEY = "sk-ant-..."
+GEMINI_API_KEY = "AIza..."
+XAI_API_KEY = "xai-..."
 
 [app]
 db_path = "icu_llm_arena.db"
