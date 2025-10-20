@@ -332,14 +332,14 @@ with st.sidebar:
     st.divider()
     st.header("Admin")
     csv_data = export_csv()
-    st.download_button(
-        "Download evaluations.csv",
-        data=csv_data if csv_data else None,
-        file_name="evaluations.csv",
-        mime="text/csv",
-        disabled=not bool(csv_data),
-    )
-    if not csv_data:
+    if csv_data:
+        st.download_button(
+            "Download evaluations.csv",
+            data=csv_data,
+            file_name="evaluations.csv",
+            mime="text/csv",
+        )
+    else:
         st.caption("No evaluations yet")
 
     if st.button("Reset session"):
