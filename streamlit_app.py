@@ -78,7 +78,6 @@ CREATE TABLE IF NOT EXISTS assignments(
   rater_id TEXT,
   task_id TEXT,
   preferred_option TEXT,
-  overall_comment TEXT,
   created_at TEXT
 );
 
@@ -100,6 +99,7 @@ CREATE TABLE IF NOT EXISTS ratings(
   instruction_following INTEGER,
   style INTEGER,
   helpfulness INTEGER,
+  comment TEXT,
   created_at TEXT
 );
 """
@@ -154,22 +154,22 @@ def insert_assignment_model(assignment_id: str, model_code: str, model_display_n
         })
     return amid
 
-def insert_rating(assignment_model_id: str, ratings: Dict[str, int]) -> None:
+def insert_rating(assignment_model_id: str, ratings: Dict[str, int], comment: str = "") -> None:
     with engine.begin() as con:
         con.execute(sql_text("""
-            INSERT INTO ratings(id, assignment_model_id, accuracy, instruction_following, style, helpfulness, created_at)
-            VALUES(:id, :amid, :acc, :instr, :style, :help, :created)
+            INSERT INTO ratings(id, assignment_model_id, accuracy, instruction_following, style, helpfulness, comment, created_at)
+            VALUES(:id, :amid, :acc, :instr, :style, :help, :comment, :created)
         """), {
             "id": str(uuid.uuid4()), "amid": assignment_model_id,
             "acc": ratings["accuracy"], "instr": ratings["instruction_following"],
-            "style": ratings["style"], "help": ratings["helpfulness"], "created": now_iso()
+            "style": ratings["style"], "help": ratings["helpfulness"], "comment": comment, "created": now_iso()
         })
 
-def finalize_assignment(assignment_id: str, preferred_option: str, comment: str) -> None:
+def finalize_assignment(assignment_id: str, preferred_option: str) -> None:
     with engine.begin() as con:
         con.execute(sql_text("""
-            UPDATE assignments SET preferred_option=:pref, overall_comment=:comment WHERE id=:id
-        """), {"pref": preferred_option, "comment": comment, "id": assignment_id})
+            UPDATE assignments SET preferred_option=:pref WHERE id=:id
+        """), {"pref": preferred_option, "id": assignment_id})
 
 def export_csv() -> bytes:
     query = """
@@ -177,7 +177,6 @@ def export_csv() -> bytes:
       assignments.id AS assignment_id,
       assignments.created_at,
       assignments.preferred_option,
-      assignments.overall_comment,
       raters.name AS rater_name,
       tasks.stakeholder,
       tasks.category,
@@ -192,7 +191,8 @@ def export_csv() -> bytes:
       ratings.accuracy,
       ratings.instruction_following,
       ratings.style,
-      ratings.helpfulness
+      ratings.helpfulness,
+      ratings.comment
     FROM assignments
     JOIN raters ON assignments.rater_id = raters.id
     JOIN tasks ON assignments.task_id = tasks.id
@@ -344,7 +344,7 @@ with st.sidebar:
 
     if st.button("Reset session"):
         for k in list(st.session_state.keys()):
-            if k.startswith("assignment_") or k.startswith("options") or k.startswith("user_prompt") or k.startswith("rating_"):
+            if k.startswith("assignment_") or k.startswith("options") or k.startswith("user_prompt") or k.startswith("rating_") or k.startswith("comment_"):
                 st.session_state.pop(k, None)
         st.success("Session cleared")
 
@@ -404,6 +404,7 @@ if "options" in st.session_state and st.session_state.get("options"):
 
     rating_cols = st.columns(4)
     rating_data = {}
+    comment_data = {}
     for i, opt in enumerate(options):
         with rating_cols[i]:
             st.markdown(f"**Option {opt['label']}**")
@@ -413,22 +414,29 @@ if "options" in st.session_state and st.session_state.get("options"):
             helpf = st.slider("Helpfulness", 1, 5, 3, key=f"rating_helpfulness_{opt['label']}")
             rating_data[opt['label']] = {"accuracy": acc, "instruction_following": instr, "style": style, "helpfulness": helpf}
 
+    st.markdown("#### Comments for each option")
+    comment_cols = st.columns(4)
+    for i, opt in enumerate(options):
+        with comment_cols[i]:
+            st.markdown(f"**Option {opt['label']}**")
+            comment = st.text_area("Comment", height=80, key=f"comment_{opt['label']}", placeholder="Optional comment...")
+            comment_data[opt['label']] = comment
+
     preference = st.radio("Overall preference", [f"Option {o['label']}" for o in options] + ["Tie / No preference"], index=len(options), horizontal=True, key="overall_pref")
-    comment = st.text_area("Optional comment / justification", height=100, key="overall_comment")
 
     if st.button("Submit ratings"):
         if any(not rating_data[lbl] for lbl in rating_data):
             st.error("Please rate every option before submitting.")
         else:
             for opt in options:
-                insert_rating(opt["assignment_model_id"], rating_data[opt['label']])
+                insert_rating(opt["assignment_model_id"], rating_data[opt['label']], comment_data[opt['label']])
 
             preferred = preference if preference != "Tie / No preference" else ""
-            finalize_assignment(st.session_state["assignment_id"], preferred, comment)
+            finalize_assignment(st.session_state["assignment_id"], preferred)
 
             st.success("Saved ratings — thank you!")
             for k in list(st.session_state.keys()):
-                if k.startswith("assignment_") or k.startswith("options") or k.startswith("user_prompt"):
+                if k.startswith("assignment_") or k.startswith("options") or k.startswith("user_prompt") or k.startswith("rating_") or k.startswith("comment_"):
                     st.session_state.pop(k, None)
 
 else:
