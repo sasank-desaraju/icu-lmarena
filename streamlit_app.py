@@ -53,7 +53,7 @@ MODEL_ORDER = [
 ]
 
 # Database setup
-APP_DB_PATH = st.secrets.get("app", {}).get("db_path", "icu_llm_arena.db")
+APP_DB_PATH = st.secrets.get("arena_app", {}).get("db_path", "icu_llm_arena.db")
 DB_URL = f"sqlite:///{APP_DB_PATH}"
 engine = create_engine(DB_URL, future=True, pool_pre_ping=True)
 
