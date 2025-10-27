@@ -7,25 +7,84 @@ from google.genai import types
 
 SYSTEM_PROMPT = """The user's favorite color is purple."""
 # USER_PROMPT = """What is my favorite color?"""
-USER_PROMPT = """Write a poem about my favorite color."""
+USER_PROMPT = """Write a short poem about my favorite color."""
 
-print("\nGemini:")
+gemini_key = os.environ.get("GEMINI_API_KEY")
+
+# Test Gemini conversation
+
+
+# Use this to only test the part that we want
+# sys.exit(0)
+conversation_history = None
+system_prompt = SYSTEM_PROMPT
+user_prompt = USER_PROMPT
+MAX_TOKENS = 200
+print(f"conversation_history: {conversation_history}")
+print(f"system_prompt: {system_prompt}")
+print(f"user_prompt: {user_prompt}")
+client = genai.Client(api_key=gemini_key)
+print("made client")
+
+# Build conversation history for Gemini
+test_contents = []
+if conversation_history:
+    print(f"type of conversation_history: {type(conversation_history)}")
+    print(f"conversation history:\n", conversation_history)
+    for step in conversation_history:
+        test_contents.append(types.Content(role="user", parts=[types.Part(text=step['user_prompt'])]))
+        test_contents.append(types.Content(role="model", parts=[types.Part(text=step['assistant_response'])]))
+
+# contents.append(types.Content(role="user", parts=[types.Part(text=user_prompt)]))
+test_contents = [
+    types.Content(role="user", parts=[types.Part(text=user_prompt)])
+]
+print(f"contents are:\n", test_contents)
+
+response = client.models.generate_content(
+    model="gemini-2.5-flash",
+    config=types.GenerateContentConfig(
+        system_instruction=system_prompt,
+        max_output_tokens=MAX_TOKENS,
+        thinking_config=types.ThinkingConfig(
+            thinking_budget=100,
+            include_thoughts=True)
+    ),
+    contents=test_contents
+)
+print(response)
+print(response.text)
+
+sys.exit(0)
+
+# Test Gemini with conversation history
+print("\nGemini with conversation:")
 key = os.environ.get("GEMINI_API_KEY")
 if key:
     client = genai.Client(api_key=key)
+    
+    # Simulate conversation history
+    # contents = [
+    #     types.Content(role="user", parts=[types.Part(text="What is my favorite color? I love acrostic poems, by the way.")]),
+    #     types.Content(role="model", parts=[types.Part(text="Your favorite color is purple.")]),
+    #     types.Content(role="user", parts=[types.Part(text=USER_PROMPT)])
+    # ]
+    contents = []
+    contents.append(types.Content(role="user", parts=[types.Part(text="What is my favorite color? I love acrostic poems, by the way.")]))
+    # contents.append(types.Content(role="model", parts=[types.Part(text="Your favorite color is purple.")]))
+    # contents.append(types.Content(role="user", parts=[types.Part(text=USER_PROMPT)]))
+    
     response = client.models.generate_content(
         model="gemini-2.5-flash",
         config=types.GenerateContentConfig(
             system_instruction=SYSTEM_PROMPT,
             max_output_tokens=200
-            # maxOutputTokens=200
         ),
-        contents=USER_PROMPT
+        contents=contents
     )
     print(response.text)
 else:
     print("GEMINI_API_KEY not set")
-
 
 sys.exit(0)
 
