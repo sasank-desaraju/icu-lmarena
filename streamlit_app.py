@@ -375,13 +375,21 @@ with st.sidebar:
         st.success("Session cleared")
 
 st.title("ICU LLM Arena — Blinded 4-way comparison")
-st.caption("Enter prompts without PHI. Results are recorded to database.")
+st.caption("Enter prompts without PHI. Results are recorded to database.\nYou can download the data using the download button on the left.\nAfter you 'submit ratings', please click is a second time so that the UI resets before downloading the data so that the ratings/comments get recorded.")
 
 if "user_name" not in st.session_state:
     st.info("Set your rater name in the sidebar to begin")
     st.stop()
 
-st.markdown("### Enter a prompt")
+st.markdown("### System Prompt")
+system_prompt_text = st.text_area(
+    "System Prompt (editable) - Use Ctrl+Enter to save the changes you make to the prompt in this session.",
+    value=SYSTEM_PROMPT.strip(),
+    height=200,
+    help="Edit the system prompt that will be sent to all LLMs. The default provides medical context appropriate for ICU scenarios."
+)
+
+st.markdown("### User Prompt")
 user_prompt = st.text_area("Prompt", height=140, placeholder="Summarize initial management of suspected elevated ICP in an adult with severe TBI.")
 
 col1, col2 = st.columns([1, 3])
@@ -392,7 +400,7 @@ with col2:
 
 if st.button("Generate blinded responses", disabled=not user_prompt.strip()):
     seed = random.randint(1, 10**9)
-    system_prompt = SYSTEM_PROMPT
+    system_prompt = system_prompt_text.strip()
     task_id = insert_task(stakeholder, category, system_prompt, user_prompt, seed)
     rater_id = ensure_rater(st.session_state["user_name"])
     assignment_id = create_assignment(rater_id, task_id)
