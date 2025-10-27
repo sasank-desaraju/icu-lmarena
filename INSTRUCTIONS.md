@@ -16,4 +16,4 @@ I want user to be able to do multiple of these "one question and evaluate answer
 - Create Dummy Runners that return fixed text for each model instead of calling the APIs. This is to allow testing the app without incurring API costs. If the flag DUMMY_RUNNERS is set to True, use the dummy runners. DONE
 - Fix bug where Comments are not recorded DONE
 - Fix bug where Likert scales are not recorded when left at their default value of 3 DONE
-- Make the system prompt visible to the user and editable by them. Keep the default system prompt as is but the user can change it before submitting the prompt.
+- Make the system prompt visible to the user and editable by them. Keep the default system prompt as is but the user can change it before submitting the prompt. DONE
