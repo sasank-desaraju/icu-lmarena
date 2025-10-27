@@ -40,6 +40,9 @@ No emojis or special formatting. Be professional.
 Be concise. Limit your answer to 3-4 sentences unless you are explicitly asked for more detail.
 """
 
+# Development
+DUMMY_RUNNERS = False        # Set to True to use dummy responses instead of API calls
+
 # Constants
 MAX_TOKENS = 600            # Max tokens for LLM responses
 MODEL_ORDER = [
@@ -296,12 +299,35 @@ def _grok_runner(system_prompt: str, user_prompt: str) -> Tuple[str, int]:
         text = f"[Grok error: {exc}]"
     return (str(text), int((time.time() - t0) * 1000))
 
-RUNNERS = {
-    "chatgpt_5": ("ChatGPT-5", _chatgpt5_runner),
-    "claude_sonnet_4_5": ("Claude Sonnet 4.5", _claude_runner),
-    "gemini_2_0": ("Gemini 2.0", _gemini_runner),
-    "grok_4": ("Grok 4", _grok_runner),
-}
+
+# ---- Dummy runners for testing (no API costs) ----
+def _dummy_chatgpt5_runner(system_prompt: str, user_prompt: str) -> Tuple[str, int]:
+    return ("This is a dummy response from ChatGPT-5.", -1)
+
+def _dummy_claude_runner(system_prompt: str, user_prompt: str) -> Tuple[str, int]:
+    return ("This is a dummy response from Claude Sonnet 4.5.", -1)
+
+def _dummy_gemini_runner(system_prompt: str, user_prompt: str) -> Tuple[str, int]:
+    return ("This is a dummy response from Gemini 2.0.", -1)
+
+def _dummy_grok_runner(system_prompt: str, user_prompt: str) -> Tuple[str, int]:
+    return ("This is a dummy response from Grok 4.", -1)
+
+if not DUMMY_RUNNERS:
+    RUNNERS = {
+        "chatgpt_5": ("ChatGPT-5", _chatgpt5_runner),
+        "claude_sonnet_4_5": ("Claude Sonnet 4.5", _claude_runner),
+        "gemini_2_0": ("Gemini 2.0", _gemini_runner),
+        "grok_4": ("Grok 4", _grok_runner),
+    }
+else:
+    RUNNERS = {
+        "chatgpt_5": ("ChatGPT-5", _dummy_chatgpt5_runner),
+        "claude_sonnet_4_5": ("Claude Sonnet 4.5", _dummy_claude_runner),
+        "gemini_2_0": ("Gemini 2.0", _dummy_gemini_runner),
+        "grok_4": ("Grok 4", _dummy_grok_runner),
+    }
+    
 
 # ---- Streamlit UI ----
 st.set_page_config(page_title="ICU LLM Arena (4-way blinded)", layout="wide")
@@ -404,7 +430,6 @@ if "options" in st.session_state and st.session_state.get("options"):
 
     rating_cols = st.columns(4)
     rating_data = {}
-    comment_data = {}
     for i, opt in enumerate(options):
         with rating_cols[i]:
             st.markdown(f"**Option {opt['label']}**")
@@ -419,8 +444,7 @@ if "options" in st.session_state and st.session_state.get("options"):
     for i, opt in enumerate(options):
         with comment_cols[i]:
             st.markdown(f"**Option {opt['label']}**")
-            comment = st.text_area("Comment", height=80, key=f"comment_{opt['label']}", placeholder="Optional comment...")
-            comment_data[opt['label']] = comment
+            st.text_area("Comment", height=80, key=f"comment_{opt['label']}", placeholder="Optional comment...")
 
     preference = st.radio("Overall preference", [f"Option {o['label']}" for o in options] + ["Tie / No preference"], index=len(options), horizontal=True, key="overall_pref")
 
@@ -428,11 +452,26 @@ if "options" in st.session_state and st.session_state.get("options"):
         if any(not rating_data[lbl] for lbl in rating_data):
             st.error("Please rate every option before submitting.")
         else:
-            for opt in options:
-                insert_rating(opt["assignment_model_id"], rating_data[opt['label']], comment_data[opt['label']])
+            # Use a single transaction for all database operations
+            with engine.begin() as con:
+                for opt in options:
+                    comment_key = f"comment_{opt['label']}"
+                    comment = st.session_state.get(comment_key, "")
+                    # Insert rating using the shared connection
+                    con.execute(sql_text("""
+                        INSERT INTO ratings(id, assignment_model_id, accuracy, instruction_following, style, helpfulness, comment, created_at)
+                        VALUES(:id, :amid, :acc, :instr, :style, :help, :comment, :created)
+                    """), {
+                        "id": str(uuid.uuid4()), "amid": opt["assignment_model_id"],
+                        "acc": rating_data[opt['label']]["accuracy"], "instr": rating_data[opt['label']]["instruction_following"],
+                        "style": rating_data[opt['label']]["style"], "help": rating_data[opt['label']]["helpfulness"], "comment": comment, "created": now_iso()
+                    })
 
-            preferred = preference if preference != "Tie / No preference" else ""
-            finalize_assignment(st.session_state["assignment_id"], preferred)
+                preferred = preference if preference != "Tie / No preference" else ""
+                # Finalize assignment using the shared connection
+                con.execute(sql_text("""
+                    UPDATE assignments SET preferred_option=:pref WHERE id=:id
+                """), {"pref": preferred, "id": st.session_state["assignment_id"]})
 
             st.success("Saved ratings — thank you!")
             for k in list(st.session_state.keys()):
